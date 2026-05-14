@@ -34,7 +34,15 @@ pipeline {
                             pytest --junitxml=result-rest.xml test/rest
                         '''
                     }   
-                } 
+                }
+
+                stage('Static') {
+                    steps {
+                        sh '''
+                            flake8 --format=pylint app > flake8.out
+                        '''
+                    }
+                }
             }
         }
         
