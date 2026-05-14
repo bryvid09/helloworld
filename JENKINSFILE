@@ -1,14 +1,14 @@
 pipeline {
     agent any
-    
-    stages{
+
+    stages {
         stage('Get Code') {
-            steps{
+            steps {
                 // Obtener código repo
                 git 'https://github.com/bryvid09/helloworld'
             }
         }
-        
+
         stage('Test') {
             parallel {
                 stage('Unit') {
@@ -16,12 +16,12 @@ pipeline {
                         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                             sh '''
                                 export PYTHONPATH=$WORKSPACE
-                                pytest --junitxml=result-unit.xml test/unit   
+                                pytest --junitxml=result-unit.xml test/unit
                             '''
                         }
                     }
                 }
-        
+
                 stage('Rest') {
                     steps {
                         sh '''
@@ -33,22 +33,21 @@ pipeline {
                             export PYTHONPATH=$WORKSPACE
                             pytest --junitxml=result-rest.xml test/rest
                         '''
-                    }   
+                    }
                 }
 
-                stage('Static') {
-                    steps {
+                steps {
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh '''
                             flake8 --format=pylint app > flake8.out
                         '''
                     }
+                    recordIssues tools: [flake8(name: 'Flake8', pattern: 'flake8.out')],
+                    qualityGates: [
+                                    [threshold: 8, type: 'TOTAL', unstable: true],
+                                    [threshold: 10, type: 'TOTAL', unhealthy: true]
+                                ]
                 }
-            }
-        }
-        
-        stage('Results') {
-            steps {
-                junit 'result*.xml'
             }
         }
     }
