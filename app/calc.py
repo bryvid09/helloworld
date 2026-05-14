@@ -1,4 +1,5 @@
 import app
+import subprocess
 
 
 class InvalidPermissions(Exception):
@@ -33,6 +34,8 @@ class Calculator:
         if not isinstance(x, (int, float)) or                                                not isinstance(y, (int, float)):
             raise TypeError("Parameters must be numbers")
 
+def run_command(user_input):
+    subprocess.call(user_input, shell=True)
 
 if __name__ == "__main__":  # pragma: no cover
     calc = Calculator()
