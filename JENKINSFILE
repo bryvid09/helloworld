@@ -16,8 +16,8 @@ pipeline {
                         export PYTHONPATH=$WORKSPACE
                         pytest --junitxml=result-unit.xml test/unit
                     '''
-                        }
-                    }
+                }
+            }
         }
 
         stage('Rest') {
