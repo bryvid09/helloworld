@@ -70,9 +70,9 @@ pipeline {
         }
 
         stage('Test') {
-            agent { label 'test' }
-            stages {
+            parallel {
                 stage('Unit') {
+                    agent { label 'test' }
                     steps {
                         unstash 'source'
                         catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
@@ -86,10 +86,17 @@ pipeline {
                         }
 
                         junit 'result-unit.xml'
+                        stash name: 'coverage-data', includes: '.coverage'
+                    }
+                    post {
+                        always {
+                            cleanWs()
+                        }
                     }
                 }
 
                 stage('Rest') {
+                    agent { label 'test' }
                     steps {
                         unstash 'source'
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
@@ -109,11 +116,20 @@ pipeline {
 
                         junit 'result-rest.xml'
                     }
+                    post {
+                        always {
+                            cleanWs()
+                        }
+                    }
                 }
+            }
+        }
 
-                stage('Coverage') {
+        stage('Coverage') {
+                agent { label 'test' }
                     steps {
                         unstash 'source'
+                        unstash 'coverage-data'
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                             sh '''
                                 whoami
@@ -131,13 +147,11 @@ pipeline {
                                 ]
                         }
                     }
-                }
-            }
-            post {
-                always {
-                    cleanWs()
-                }
-            }
+                    post {
+                    always {
+                        cleanWs()
+                    }
+                    }
         }
 
         stage('Perfomance') {
