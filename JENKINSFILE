@@ -9,54 +9,99 @@ pipeline {
             }
         }
 
-        stage('Unit') {
-            steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    sh '''
-                        export PYTHONPATH=$WORKSPACE
-                        pytest --junitxml=result-unit.xml test/unit
-                    '''
+        stage('Analysis') {
+            stages {
+                stage('Static') {
+                    steps {
+                        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                            sh '''
+                                flake8 --exit-zero --format=pylint app >flake8.out
+                            '''
+
+                                recordIssues tools: [flake8(name: 'Flake8', pattern: 'flake8.out')],
+                                    qualityGates: [
+                                        [criticality: 'UNSTABLE', threshold: 8, type: 'TOTAL', unestable: true],
+                                        [criticality: 'FAILURE', threshold: 10, type: 'TOTAL', unestable: false]
+                                    ],
+                                    unhealthy: 10
+                        }
+                    }
+                }
+
+                stage('Security') {
+                    steps {
+                        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                            sh '''
+                                    bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
+                                '''
+
+                            recordIssues tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')],
+                                    qualityGates: [
+                                        [criticality: 'UNSTABLE', threshold: 2, type: 'TOTAL', unestable: true],
+                                        [criticality: 'FAILURE', threshold: 4, type: 'TOTAL', unestable: false]
+                                    ],
+                                    unhealthy: 4
+                        }
+                    }
                 }
             }
         }
 
-        stage('Rest') {
-            steps {
-                sh '''
-                    export FLASK_APP=app/api.py
-                    export FLASK_ENV=development
-                    flask run &
-                    java -jar /opt/wiremock/wiremock.jar --port 9090 --root-dir test/wiremock &
-                    sleep 2
-                    export PYTHONPATH=$WORKSPACE
-                    pytest --junitxml=result-rest.xml test/rest
-                '''
+        stage('Test') {
+            stages {
+                stage('Unit') {
+                    steps {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                            sh '''
+                                export PYTHONPATH=$WORKSPACE
+                                coverage run --branch --source=app --omit="app/__init__.py,app/api.py" -m pytest --junitxml=result-unit.xml test/unit
+                            '''
+                        }
+
+                        junit 'result-unit.xml'
+                    }
+                }
+
+                stage('Rest') {
+                    steps {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                            sh '''
+                                export FLASK_APP=app/api.py
+                                export FLASK_ENV=development
+                                flask run &
+                                java -jar /opt/wiremock/wiremock.jar --port 9090 --root-dir test/wiremock &
+                                sleep 2
+                                export PYTHONPATH=$WORKSPACE
+                                pytest --junitxml=result-rest.xml test/rest
+                            '''
+                        }
+
+                        junit 'result-rest.xml'
+                    }
+                }
+
+                stage('Coverage') {
+                    steps {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                            sh 'coverage xml'
+
+                            recordCoverage tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']],
+                                qualityGates: [
+                                    [threshold: 85.0, metric: 'LINE', baseline: 'PROJECT', criticality: 'UNSTABLE'],
+                                    [threshold: 95.0, metric: 'LINE', baseline: 'PROJECT', criticality: 'NOTE'],
+                                    [threshold: 80.0, metric: 'BRANCH', baseline: 'PROJECT', criticality: 'UNSTABLE'],
+                                    [threshold: 90.0, metric: 'BRANCH', baseline: 'PROJECT', criticality: 'NOTE']
+                                ]
+                        }
+                    }
+                }
             }
         }
 
-        stage('Static') {
+        stage('Perfomance') {
             steps {
-                    sh '''
-                        flake8 --format=pylint --exit-zero app >flake8.out
-                    '''
-                    recordIssues tools: [flake8(name: 'Flake8', pattern: 'flake8.out')],
-                    qualityGates: [
-                            [threshold: 8, type: 'TOTAL', unstable: true],
-                            [threshold: 10, type: 'TOTAL', unstable: false]
-                        ]
-            }
-        }
-
-        stage('Security') {
-            steps {
-                    sh '''
-                        bandit --format custom --msg-template "{abspath}:{line}: [{test_id}] {msg}" -r app -o bandit.out
-                    '''
-                    recordIssues tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')],
-                    qualityGates: [
-                        [threshold: 2, type: 'TOTAL', unstable: true],
-                        [threshold: 4, type: 'TOTAL', unstable: false]
-                    ]
+                sh '/opt/jmeter/bin/jmeter -n -t test/jmeter/flask.jmx -f -l flask.jtl'
+                perfReport sourceDataFiles: 'flask.jtl'
             }
         }
     }
