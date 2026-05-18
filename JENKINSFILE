@@ -1,18 +1,23 @@
+/* groovylint-disable TrailingWhitespace */
 pipeline {
-    agent any
+    agent none
 
     stages {
         stage('Get Code') {
+            agent { label 'analysis' }
             steps {
                 // Obtener código repo
                 git 'https://github.com/bryvid09/helloworld'
+                stash name: 'source', includes: '**/*'
             }
         }
 
         stage('Analysis') {
+            agent { label 'analysis' }
             stages {
                 stage('Static') {
                     steps {
+                        unstash 'source'
                         catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
                             sh '''
                                 flake8 --exit-zero --format=pylint app >flake8.out
@@ -30,6 +35,7 @@ pipeline {
 
                 stage('Security') {
                     steps {
+                        unstash 'source'
                         catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
                             sh '''
                                     bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
@@ -48,9 +54,11 @@ pipeline {
         }
 
         stage('Test') {
+            agent { label 'test' }
             stages {
                 stage('Unit') {
                     steps {
+                        unstash 'source'
                         catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                             sh '''
                                 export PYTHONPATH=$WORKSPACE
@@ -64,6 +72,7 @@ pipeline {
 
                 stage('Rest') {
                     steps {
+                        unstash 'source'
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                             sh '''
                                 export FLASK_APP=app/api.py
@@ -82,6 +91,7 @@ pipeline {
 
                 stage('Coverage') {
                     steps {
+                        unstash 'source'
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                             sh 'coverage xml'
 
@@ -99,8 +109,15 @@ pipeline {
         }
 
         stage('Perfomance') {
+            agent { label 'performance' }
             steps {
-                sh '/opt/jmeter/bin/jmeter -n -t test/jmeter/flask.jmx -f -l flask.jtl'
+                unstash 'source'
+                sh '''
+                export FLASK_APP=app/api.py
+                flask run &
+                sleep 3
+                /opt/jmeter/bin/jmeter -n -t test/jmeter/flask.jmx -f -l flask.jtl
+                '''
                 perfReport sourceDataFiles: 'flask.jtl'
             }
         }
